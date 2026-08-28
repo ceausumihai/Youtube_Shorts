@@ -151,3 +151,18 @@ alegerii.
   pentru a-l folosi cu un AI gratuit la alegerea clipurilor.
 - Cu `--local-video`, nu ai nevoie deloc de `yt-dlp` instalat — doar de
   ffmpeg, Whisper și (opțional) `anthropic`.
+
+## Bonus: conversie audio pentru YouCut
+
+Scriptul `scripts/Convert_For_Youcut.py` (și wrapper-ul dublu-click pentru
+Mac, `scripts/Convert_For_YouCut.command`) extrag pista audio dintr-unul sau
+mai multe fișiere video/audio și o reîncodează ca WAV mono, 48kHz, 16-bit PCM
+— un format pe care YouCut îl importă fără probleme.
+
+```bash
+python3 scripts/Convert_For_Youcut.py video1.mp4 video2.mov audio.mp3
+```
+
+Pe Mac poți trage și fișierele direct peste `Convert_For_YouCut.command`
+pentru a le converti fără linia de comandă. Rezultatul apare lângă fișierul
+original, cu sufixul `_YouCut.wav`. Necesită `ffmpeg` instalat.
