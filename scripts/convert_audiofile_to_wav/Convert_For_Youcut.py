@@ -57,14 +57,14 @@ def convert_file(input_file: Path):
         subprocess.run(command, check=True)
 
         print()
-        print("✅ Conversie reușită!")
+        print("✅ Conversion successful!")
         print(f"   {output_file}")
 
         return True
 
     except subprocess.CalledProcessError:
         print()
-        print("❌ Conversia a eșuat!")
+        print("❌ Conversion failed!")
         return False
 
 
@@ -84,13 +84,13 @@ def main():
         )
     except (FileNotFoundError, subprocess.CalledProcessError):
         print()
-        print("❌ FFmpeg nu este instalat.")
+        print("❌ FFmpeg is not installed.")
         print()
-        print("Instalează-l cu:")
+        print("Install it with:")
         print()
         print("    brew install ffmpeg")
         print()
-        input("Apasă ENTER pentru a închide...")
+        input("Press ENTER to close...")
         sys.exit(1)
 
     # Files received through drag & drop
@@ -98,9 +98,9 @@ def main():
 
     if not files:
         print()
-        print("❌ Nu ai selectat niciun fișier.")
+        print("❌ No file selected.")
         print()
-        input("Apasă ENTER pentru a închide...")
+        input("Press ENTER to close...")
         sys.exit(1)
 
     success = 0
@@ -111,12 +111,12 @@ def main():
         input_file = Path(file)
 
         if not input_file.exists():
-            print(f"❌ Fișierul nu există: {input_file}")
+            print(f"❌ File does not exist: {input_file}")
             failed += 1
             continue
 
         if not input_file.is_file():
-            print(f"❌ Nu este fișier: {input_file}")
+            print(f"❌ Not a file: {input_file}")
             failed += 1
             continue
 
@@ -127,13 +127,13 @@ def main():
 
     print()
     print("=" * 60)
-    print("FINAL")
+    print("SUMMARY")
     print("=" * 60)
-    print(f"✅ Reușite : {success}")
-    print(f"❌ Eșuate  : {failed}")
+    print(f"✅ Succeeded : {success}")
+    print(f"❌ Failed    : {failed}")
     print()
 
-    input("Apasă ENTER pentru a închide...")
+    input("Press ENTER to close...")
 
 
 if __name__ == "__main__":

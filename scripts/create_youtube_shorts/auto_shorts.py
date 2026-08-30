@@ -2,48 +2,48 @@
 """
 auto_shorts.py
 ==============
-Pipeline automatizat: dintr-un vlog (YouTube sau fisier local) -> mai multe
+Automated pipeline: from a vlog (YouTube or local file) -> multiple
 YouTube Shorts.
 
-Etape:
-    1. Obtine videoclipul sursa: fie il descarca de pe YouTube (yt-dlp),
-       fie foloseste direct un fisier deja existent pe calculator
-       (--local-video), sarind peste descarcare
-    2. Extrage audio si il transcrie cu timestamp-uri (Whisper)
-    3. Alege cele mai bune segmente pentru Shorts (inceput/sfarsit + motiv),
-       fie automat prin Claude (Anthropic API), fie dintr-un fisier JSON
-       furnizat de tine (generat manual, ex. cu un AI gratuit)
-    4. Taie fiecare segment cu ffmpeg si il reincadreaza in format vertical 9:16
+Steps:
+    1. Get the source video: either download it from YouTube (yt-dlp),
+       or use a file already on disk (--local-video), skipping the
+       download
+    2. Extract audio and transcribe it with timestamps (Whisper)
+    3. Pick the best segments for Shorts (start/end + reason),
+       either automatically via Claude (Anthropic API), or from a JSON
+       file you supply (generated manually, e.g. with a free AI)
+    4. Cut each segment with ffmpeg and reframe it into vertical 9:16 format
 
-Cerinte (instalare):
+Requirements (installation):
     pip install yt-dlp openai-whisper anthropic --break-system-packages
-    # ffmpeg trebuie sa fie instalat la nivel de sistem (sudo apt install ffmpeg)
-    # "yt-dlp" e necesar DOAR daca descarci de pe YouTube (nu e nevoie daca
-    # folosesti mereu --local-video)
-    # "anthropic" e necesar DOAR daca folosesti alegerea automata cu Claude
-    # (nu e nevoie daca folosesti --clips-json)
+    # ffmpeg must be installed at the system level (sudo apt install ffmpeg)
+    # "yt-dlp" is only needed if you download from YouTube (not needed if
+    # you always use --local-video)
+    # "anthropic" is only needed for automatic clip selection with Claude
+    # (not needed if you use --clips-json)
 
-Variabile de mediu necesare (doar pentru alegerea automata cu Claude):
-    ANTHROPIC_API_KEY   -> cheia ta de la console.anthropic.com
+Required environment variables (only for automatic selection with Claude):
+    ANTHROPIC_API_KEY   -> your key from console.anthropic.com
 
-Exemple de utilizare:
+Usage examples:
 
-    # Varianta completa, automata, de pe YouTube (Claude alege clipurile):
+    # Full, automatic variant, from YouTube (Claude picks the clips):
     python auto_shorts.py "https://www.youtube.com/watch?v=XXXXXXXX" \
         --num-clips 3 --clip-length 45 --output-dir ./shorts_output
 
-    # Aceeasi varianta, dar pornind de la un fisier video deja pe disc
-    # (fara url, fara yt-dlp):
+    # Same variant, but starting from a video file already on disk
+    # (no url, no yt-dlp):
     python auto_shorts.py --local-video "/home/user/Videos/vlog.mp4" \
         --num-clips 3 --clip-length 45 --output-dir ./shorts_output
 
-    # Varianta fara API Claude, in doi pasi (functioneaza si cu --local-video):
-    # 1) doar transcrie, apoi opreste-te
+    # Variant without Claude API, in two steps (also works with --local-video):
+    # 1) only transcribe, then stop
     python auto_shorts.py --local-video "/home/user/Videos/vlog.mp4" \
         --transcript-only
-    # (iei _auto_shorts_work/transcript.json, il dai unui AI gratuit,
-    #  ceri clipuri in formatul {start, end, title, reason}, salvezi clips.json)
-    # 2) taiere + formatare, folosind clipurile deja alese
+    # (take _auto_shorts_work/transcript.json, give it to a free AI,
+    #  ask for clips in the format {start, end, title, reason}, save clips.json)
+    # 2) cut + format, using the already-chosen clips
     python auto_shorts.py --local-video "/home/user/Videos/vlog.mp4" --clips-json clips.json --output-dir ./shorts_output
 """
 
@@ -58,7 +58,7 @@ from typing import List, Optional
 
 
 # ----------------------------------------------------------------------------
-# Structuri de date
+# Data structures
 # ----------------------------------------------------------------------------
 
 @dataclass
@@ -77,20 +77,20 @@ class ClipCandidate:
 
 
 # ----------------------------------------------------------------------------
-# Pasul 1: Obtinerea videoclipului (descarcare YouTube SAU fisier local)
+# Step 1: Getting the video (YouTube download OR local file)
 # ----------------------------------------------------------------------------
 
 def run_subprocess(cmd: List[str]) -> None:
-    """Ruleaza o comanda externa (ffmpeg/yt-dlp) si, daca esueaza, afiseaza
-    stdout/stderr-ul real inainte de a propaga eroarea.
+    """Run an external command (ffmpeg/yt-dlp) and, if it fails, print the
+    actual stdout/stderr before re-raising the error.
 
-    subprocess.run(..., capture_output=True) ascunde mesajele de eroare utile
-    daca nu le afisam explicit - fara asta, o eroare ffmpeg apare doar ca
-    "returned non-zero exit status N", fara niciun detaliu.
+    subprocess.run(..., capture_output=True) hides useful error messages
+    unless we print them explicitly - without this, an ffmpeg error only
+    shows up as "returned non-zero exit status N", with no detail.
     """
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"\nEROARE la rularea comenzii: {' '.join(cmd)}")
+        print(f"\nERROR running command: {' '.join(cmd)}")
         if result.stdout:
             print("--- stdout ---")
             print(result.stdout)
@@ -101,12 +101,12 @@ def run_subprocess(cmd: List[str]) -> None:
 
 
 def download_video(url: str, workdir: Path) -> Path:
-    """Descarca videoclipul YouTube folosind yt-dlp si returneaza calea locala.
+    """Download the YouTube video using yt-dlp and return the local path.
 
-    Apelata doar cand utilizatorul NU a dat --local-video (adica vrea sa
-    descarce de pe YouTube in loc sa foloseasca un fisier deja existent).
+    Only called when the user did NOT provide --local-video (i.e. wants to
+    download from YouTube instead of using an existing file).
     """
-    print(f"[1/4] Descarc videoclipul de la: {url}")
+    print(f"[1/4] Downloading video from: {url}")
     output_template = str(workdir / "source.%(ext)s")
 
     cmd = [
@@ -120,22 +120,22 @@ def download_video(url: str, workdir: Path) -> Path:
 
     video_path = workdir / "source.mp4"
     if not video_path.exists():
-        # yt-dlp poate salva cu alta extensie in unele cazuri
+        # yt-dlp may save with a different extension in some cases
         candidates = list(workdir.glob("source.*"))
         if not candidates:
-            raise FileNotFoundError("yt-dlp nu a produs niciun fisier video.")
+            raise FileNotFoundError("yt-dlp did not produce any video file.")
         video_path = candidates[0]
 
-    print(f"    -> Video salvat la: {video_path}")
+    print(f"    -> Video saved to: {video_path}")
     return video_path
 
 
 # ----------------------------------------------------------------------------
-# Pasul 2: Extragere audio + transcriere cu Whisper
+# Step 2: Audio extraction + transcription with Whisper
 # ----------------------------------------------------------------------------
 
 def extract_audio(video_path: Path, workdir: Path) -> Path:
-    """Extrage pista audio in format wav mono 16kHz (ideal pentru Whisper)."""
+    """Extract the audio track as mono 16kHz wav (ideal for Whisper)."""
     audio_path = workdir / "audio.wav"
     cmd = [
         "ffmpeg", "-y", "-i", str(video_path),
@@ -147,9 +147,9 @@ def extract_audio(video_path: Path, workdir: Path) -> Path:
 
 
 def transcribe_audio(audio_path: Path, model_size: str = "base") -> List[TranscriptSegment]:
-    """Transcrie audio cu Whisper si returneaza segmente cu timestamp-uri."""
-    print("[2/4] Transcriu audio cu Whisper (poate dura cateva minute)...")
-    import whisper  # import local, pentru a nu forta instalarea daca userul doar citeste scriptul
+    """Transcribe audio with Whisper and return segments with timestamps."""
+    print("[2/4] Transcribing audio with Whisper (may take a few minutes)...")
+    import whisper  # local import, to avoid forcing installation if the user is just reading the script
 
     model = whisper.load_model(model_size)
     result = model.transcribe(str(audio_path), verbose=False)
@@ -158,12 +158,12 @@ def transcribe_audio(audio_path: Path, model_size: str = "base") -> List[Transcr
         TranscriptSegment(start=seg["start"], end=seg["end"], text=seg["text"].strip())
         for seg in result["segments"]
     ]
-    print(f"    -> {len(segments)} segmente transcrise.")
+    print(f"    -> {len(segments)} segments transcribed.")
     return segments
 
 
 # ----------------------------------------------------------------------------
-# Pasul 3: Alegerea celor mai bune clipuri cu Claude
+# Step 3: Picking the best clips with Claude
 # ----------------------------------------------------------------------------
 
 def pick_best_clips(
@@ -172,35 +172,35 @@ def pick_best_clips(
     clip_length: int,
     api_key: Optional[str] = None,
 ) -> List[ClipCandidate]:
-    """Trimite transcriptul catre Claude si primeste inapoi cele mai bune segmente."""
-    print(f"[3/4] Aleg cele mai bune {num_clips} segmente cu ajutorul Claude...")
+    """Send the transcript to Claude and get back the best segments."""
+    print(f"[3/4] Picking the best {num_clips} segments with Claude...")
 
     import anthropic
 
-    client = anthropic.Anthropic(api_key=api_key)  # foloseste ANTHROPIC_API_KEY daca api_key=None
+    client = anthropic.Anthropic(api_key=api_key)  # uses ANTHROPIC_API_KEY if api_key=None
 
-    # Construim un transcript numerotat, cu timestamp-uri, ca sa poata Claude
-    # sa refere exact segmentele alese.
+    # Build a numbered transcript with timestamps, so Claude can reference
+    # the exact segments it chooses.
     transcript_text = "\n".join(
         f"[{seg.start:.1f}s -> {seg.end:.1f}s] {seg.text}" for seg in segments
     )
 
     system_prompt = (
-        "Esti un editor expert de continut viral pentru YouTube Shorts/TikTok. "
-        "Primesti transcriptul complet al unui vlog, cu timestamp-uri. "
-        "Sarcina ta este sa alegi cele mai bune momente pentru clipuri scurte "
-        "(shorts), fiecare avand o poveste completa: un hook puternic la inceput, "
-        "un punct culminant si o incheiere clara. "
-        f"Fiecare clip trebuie sa aiba intre {max(15, clip_length - 15)} si "
-        f"{clip_length + 15} secunde. "
-        "Raspunde STRICT in format JSON (fara text suplimentar, fara ``` ), "
-        "ca o lista de obiecte cu campurile: start (numar, secunde), "
-        "end (numar, secunde), title (titlu scurt atragator pentru Short), "
-        "reason (de ce acest moment functioneaza ca Short)."
+        "You are an expert viral content editor for YouTube Shorts/TikTok. "
+        "You receive the full transcript of a vlog, with timestamps. "
+        "Your task is to pick the best moments for short clips "
+        "(shorts), each with a complete story: a strong hook at the start, "
+        "a climax, and a clear ending. "
+        f"Each clip must be between {max(15, clip_length - 15)} and "
+        f"{clip_length + 15} seconds long. "
+        "Respond STRICTLY in JSON format (no extra text, no ``` ), "
+        "as a list of objects with the fields: start (number, seconds), "
+        "end (number, seconds), title (short catchy title for the Short), "
+        "reason (why this moment works as a Short)."
     )
 
     user_prompt = (
-        f"Alege exact {num_clips} segmente pentru Shorts din urmatorul transcript:\n\n"
+        f"Pick exactly {num_clips} segments for Shorts from the following transcript:\n\n"
         f"{transcript_text}"
     )
 
@@ -217,7 +217,7 @@ def pick_best_clips(
     try:
         parsed = json.loads(raw_text)
     except json.JSONDecodeError as e:
-        print("ATENTIE: raspunsul Claude nu a fost JSON valid. Raspuns brut:")
+        print("WARNING: Claude's response was not valid JSON. Raw response:")
         print(raw_text)
         raise e
 
@@ -231,7 +231,7 @@ def pick_best_clips(
         for item in parsed
     ]
 
-    print("    -> Clipuri alese:")
+    print("    -> Clips chosen:")
     for c in clips:
         print(f"       * {c.start:.1f}s - {c.end:.1f}s : {c.title}")
 
@@ -239,37 +239,37 @@ def pick_best_clips(
 
 
 def load_clips_from_json(json_path: Path) -> List[ClipCandidate]:
-    """Incarca clipurile alese dintr-un fisier JSON produs manual (ex: cu un AI gratuit).
+    """Load the chosen clips from a manually produced JSON file (e.g. with a free AI).
 
-    Format asteptat (lista de obiecte, acelasi format pe care il produce
-    normal Claude in pick_best_clips):
+    Expected format (list of objects, the same format normally produced by
+    Claude in pick_best_clips):
 
         [
           {
             "start": 125.0,
             "end": 168.5,
-            "title": "Titlu scurt pentru Short",
-            "reason": "De ce functioneaza acest moment (optional)"
+            "title": "Short title for the clip",
+            "reason": "Why this moment works (optional)"
           },
           ...
         ]
 
-    Campurile "start" si "end" sunt in secunde, relative la videoclipul
-    original (aceleasi timestamp-uri ca in transcript.json).
+    The "start" and "end" fields are in seconds, relative to the original
+    video (same timestamps as in transcript.json).
     """
-    print(f"[3/4] Incarc clipurile din fisierul JSON: {json_path}")
+    print(f"[3/4] Loading clips from JSON file: {json_path}")
 
     if not json_path.exists():
-        raise FileNotFoundError(f"Fisierul {json_path} nu exista.")
+        raise FileNotFoundError(f"File {json_path} does not exist.")
 
     data = json.loads(json_path.read_text(encoding="utf-8"))
     if not isinstance(data, list) or not data:
-        raise ValueError("Fisierul JSON trebuie sa contina o lista nevida de clipuri.")
+        raise ValueError("The JSON file must contain a non-empty list of clips.")
 
     clips = []
     for i, item in enumerate(data):
         if "start" not in item or "end" not in item:
-            raise ValueError(f"Elementul {i} din JSON nu are 'start'/'end'.")
+            raise ValueError(f"Item {i} in the JSON is missing 'start'/'end'.")
         clips.append(
             ClipCandidate(
                 start=float(item["start"]),
@@ -279,7 +279,7 @@ def load_clips_from_json(json_path: Path) -> List[ClipCandidate]:
             )
         )
 
-    print("    -> Clipuri incarcate:")
+    print("    -> Clips loaded:")
     for c in clips:
         print(f"       * {c.start:.1f}s - {c.end:.1f}s : {c.title}")
 
@@ -287,7 +287,7 @@ def load_clips_from_json(json_path: Path) -> List[ClipCandidate]:
 
 
 # ----------------------------------------------------------------------------
-# Pasul 4: Taiere + reincadrare 9:16
+# Step 4: Cutting + reframing to 9:16
 # ----------------------------------------------------------------------------
 
 
@@ -304,13 +304,13 @@ def cut_and_format_clip(
     clip: ClipCandidate,
     output_dir: Path,
 ) -> Path:
-    """Taie segmentul si il reincadreaza vertical (9:16)."""
+    """Cut the segment and reframe it vertically (9:16)."""
     duration = clip.end - clip.start
     slug = slugify(clip.title)
     raw_cut = output_dir / f"_tmp_{slug}.mp4"
     final_path = output_dir / f"{slug}.mp4"
 
-    # 1) Taiem segmentul brut (fara re-encodare completa, doar seek + copy cand se poate)
+    # 1) Cut the raw segment (no full re-encoding, just seek + copy when possible)
     run_subprocess(
         [
             "ffmpeg", "-y",
@@ -321,9 +321,9 @@ def cut_and_format_clip(
         ]
     )
 
-    # 2) Reincadram 9:16 (crop centrat + blur pe fundal).
-    #    Filtrul: scalam originalul sa umple latimea 1080, il centram pe un
-    #    fundal blurat de 1080x1920 - un stil comun pentru Shorts/Reels.
+    # 2) Reframe to 9:16 (centered crop + blurred background).
+    #    Filter: scale the original to fill width 1080, center it on a
+    #    blurred 1080x1920 background - a common style for Shorts/Reels.
     vf_filter = (
         "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,"
         "crop=1080:1920,boxblur=20:5[bg];"
@@ -348,33 +348,33 @@ def cut_and_format_clip(
 
 
 # ----------------------------------------------------------------------------
-# Orchestrare
+# Orchestration
 # ----------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="Genereaza automat YouTube Shorts dintr-un vlog.")
+    parser = argparse.ArgumentParser(description="Automatically generate YouTube Shorts from a vlog.")
     parser.add_argument("url", nargs="?", default=None,
-                         help="Link-ul catre videoclipul YouTube sursa (omite-l daca folosesti --local-video)")
+                         help="Link to the source YouTube video (omit if using --local-video)")
     parser.add_argument("--local-video", default=None,
-                         help="Cale catre un fisier video deja existent pe calculator (sare peste descarcarea de pe YouTube). "
-                              "Foloseste OR url, OR --local-video, niciodata amandoua.")
-    parser.add_argument("--num-clips", type=int, default=3, help="Cate shorts sa genereze")
-    parser.add_argument("--clip-length", type=int, default=45, help="Lungimea tinta a fiecarui clip (secunde)")
+                         help="Path to a video file already on disk (skips the YouTube download). "
+                              "Use EITHER url OR --local-video, never both.")
+    parser.add_argument("--num-clips", type=int, default=3, help="How many shorts to generate")
+    parser.add_argument("--clip-length", type=int, default=45, help="Target length of each clip (seconds)")
     parser.add_argument("--whisper-model", default="base", choices=["tiny", "base", "small", "medium", "large"],
-                         help="Marimea modelului Whisper (mai mare = mai precis, dar mai lent)")
-    parser.add_argument("--output-dir", default="./shorts_output", help="Folderul unde se salveaza rezultatele")
-    parser.add_argument("--anthropic-api-key", default=None, help="Cheia API Anthropic (implicit: variabila ANTHROPIC_API_KEY)")
+                         help="Whisper model size (larger = more accurate, but slower)")
+    parser.add_argument("--output-dir", default="./shorts_output", help="Folder where results are saved")
+    parser.add_argument("--anthropic-api-key", default=None, help="Anthropic API key (default: ANTHROPIC_API_KEY env var)")
     parser.add_argument("--clips-json", default=None,
-                         help="Cale catre un fisier JSON cu clipurile deja alese (sare peste apelul Claude la Pasul 3). "
-                              "Format: lista de {start, end, title, reason}.")
+                         help="Path to a JSON file with already-chosen clips (skips the Claude call in Step 3). "
+                              "Format: list of {start, end, title, reason}.")
     parser.add_argument("--transcript-only", action="store_true",
-                         help="Doar descarca+transcrie si opreste-te (util cand vrei sa generezi tu clips.json manual).")
+                         help="Only download+transcribe and stop (useful when you want to generate clips.json manually).")
     args = parser.parse_args()
 
     if not args.url and not args.local_video:
-        sys.exit("EROARE: da fie un link YouTube (url), fie --local-video <cale catre fisier>.")
+        sys.exit("ERROR: provide either a YouTube link (url), or --local-video <path to file>.")
     if args.url and args.local_video:
-        sys.exit("EROARE: foloseste doar unul dintre url sau --local-video, nu amandoua.")
+        sys.exit("ERROR: use only one of url or --local-video, not both.")
 
     workdir = Path("./_auto_shorts_work")
     workdir.mkdir(exist_ok=True)
@@ -382,22 +382,22 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if args.local_video:
-        # Videoclipul e deja pe disc -> sarim peste yt-dlp complet
+        # The video is already on disk -> skip yt-dlp entirely
         video_path = Path(args.local_video)
         if not video_path.exists():
-            sys.exit(f"EROARE: fisierul video {video_path} nu exista.")
-        print(f"[1/4] Folosesc videoclipul local: {video_path}")
+            sys.exit(f"ERROR: video file {video_path} does not exist.")
+        print(f"[1/4] Using local video: {video_path}")
     else:
         video_path = download_video(args.url, workdir)
 
-    # Transcrierea e necesara doar daca vrem doar transcriptul, sau daca
-    # trebuie sa alegem clipurile cu Claude (are nevoie de segmente).
-    # Cu --clips-json, clipurile sunt deja alese, deci sarim peste ea.
+    # Transcription is only needed if we want just the transcript, or if
+    # we need to pick clips with Claude (which needs segments).
+    # With --clips-json, the clips are already chosen, so we skip it.
     transcript_path = workdir / "transcript.json"
     segments: List[TranscriptSegment] = []
     if args.transcript_only or not args.clips_json:
         if transcript_path.exists():
-            print(f"[2/4] Refolosesc transcriptul existent: {transcript_path}")
+            print(f"[2/4] Reusing existing transcript: {transcript_path}")
             segments = [
                 TranscriptSegment(**item)
                 for item in json.loads(transcript_path.read_text(encoding="utf-8"))
@@ -410,12 +410,12 @@ def main():
                 encoding="utf-8",
             )
     else:
-        print("[2/4] --clips-json furnizat, sar peste transcriere (nu mai e nevoie de segmente).")
+        print("[2/4] --clips-json provided, skipping transcription (segments not needed).")
 
     if args.transcript_only:
-        print(f"\nTranscript salvat la: {transcript_path}")
-        print("Genereaza fisierul cu clipuri (format: lista de start/end/title/reason) "
-              "si ruleaza din nou scriptul cu --clips-json <fisier>.")
+        print(f"\nTranscript saved to: {transcript_path}")
+        print("Generate the clips file (format: list of start/end/title/reason) "
+              "and run the script again with --clips-json <file>.")
         return
 
     if args.clips_json:
@@ -423,20 +423,20 @@ def main():
     else:
         api_key = args.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
-            sys.exit("EROARE: seteaza variabila de mediu ANTHROPIC_API_KEY sau foloseste --anthropic-api-key "
-                      "(sau foloseste --clips-json pentru a evita apelul catre Claude)")
+            sys.exit("ERROR: set the ANTHROPIC_API_KEY environment variable or use --anthropic-api-key "
+                      "(or use --clips-json to avoid calling Claude)")
         clips = pick_best_clips(segments, args.num_clips, args.clip_length, api_key=api_key)
 
-    print("[4/4] Taiere si reincadrare 9:16 pentru fiecare clip...")
+    print("[4/4] Cutting and reframing to 9:16 for each clip...")
     results = []
     for clip in clips:
         final_path = cut_and_format_clip(video_path, clip, output_dir)
         results.append((clip, final_path))
-        print(f"    -> Generat: {final_path}")
+        print(f"    -> Generated: {final_path}")
 
-    print("\n=== GATA ===")
+    print("\n=== DONE ===")
     for clip, path in results:
-        print(f"- {path.name}: {clip.title}\n    Motiv: {clip.reason}")
+        print(f"- {path.name}: {clip.title}\n    Reason: {clip.reason}")
 
 
 if __name__ == "__main__":
