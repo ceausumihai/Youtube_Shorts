@@ -10,7 +10,7 @@ prepare audio for YouCut.
   with Whisper, picks the best moments (automatically with Claude or manually
   from a JSON file), and cuts/reframes them into vertical 9:16 clips.
 - [`scripts/convert_audiofile_to_wav/`](scripts/convert_audiofile_to_wav/README.md) —
-  `Convert_For_Youcut.py` extracts audio from video/audio files and re-encodes
-  it as a WAV file compatible with YouCut.
+  `audio_converter.py` is a drag-and-drop desktop app that extracts audio from
+  video/audio files and re-encodes it as a WAV file compatible with YouCut.
 
 See each subfolder's README for installation, configuration, and usage details.
