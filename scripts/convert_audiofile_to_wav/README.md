@@ -1,20 +1,20 @@
-# Convert Audio File to WAV
+# Convert Audio Files to WAV
 
-`Convert_For_Youcut.py` extracts the audio track from one or more video/audio
-files and re-encodes it as a mono, 48kHz, 16-bit PCM WAV file — a format that
-YouCut imports reliably.
+`audio_converter.py` extracts the audio track from one or more video/audio
+files in these formats (MP4 • M4A • MOV • AAC • MP3 • WAV) and re-encodes it as a mono, 48kHz, 16-bit PCM WAV file
 
 ## Requirements
 
-- `ffmpeg` installed (e.g. `brew install ffmpeg`)
+- Setup the development environment. Execute: setup_youcut_converter.sh
+- Build the Audio Convertor APP. Execute: build_audio_converter_app.sh
 
 ## Usage
 
 ```bash
-python3 Convert_For_Youcut.py video1.mp4 video2.mov audio.mp3
+python audio_converter.py 
 ```
 
-Files are typically passed by dragging & dropping them onto this script.
+Files are typically passed by dragging & dropping them onto the UI.
 
 ## Output
 
