@@ -14,8 +14,7 @@ YouCut imports reliably.
 python3 Convert_For_Youcut.py video1.mp4 video2.mov audio.mp3
 ```
 
-Files are typically passed by dragging & dropping them onto this script (see
-`Convert_For_YouCut.command` for a double-clickable macOS wrapper).
+Files are typically passed by dragging & dropping them onto this script.
 
 ## Output
 
